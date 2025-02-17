@@ -1,0 +1,97 @@
+﻿@page "/crawl"
+@inject CrawlService CrawlService
+@inject DatabaseService DatabaseService
+
+<h3>Crawl Data Tool</h3>
+
+<div>
+    <label for="urls">Enter URLs (one per line):</label>
+    <textarea id="urls" rows="5" cols="50" @bind="InputUrls"></textarea>
+</div>
+
+<div>
+    <button @onclick="StartCrawling" class="btn btn-primary">Start Crawling</button>
+</div>
+
+@if (IsLoading)
+{
+    <p>Loading...</p>
+}
+
+@if (!string.IsNullOrEmpty(StatusMessage))
+{
+    <p>@StatusMessage</p>
+}
+
+<h4>Results:</h4>
+<ul>
+    @foreach (var result in CrawlResults)
+    {
+        <li>@result</li>
+    }
+</ul>
+
+@code {
+    private string InputUrls = "";
+    private bool IsLoading = false;
+    private string StatusMessage = "";
+    private List<string> CrawlResults = new();
+
+    private async Task StartCrawling()
+    {
+        IsLoading = true;
+        StatusMessage = "Đang lấy URL của các agency...";
+        CrawlResults.Clear();
+
+        int currentPage = 102; // Bắt đầu từ trang 1
+        int endPage = 178; // Kết thúc tại trang 150
+
+        try
+        {
+            var crawlService = new CrawlService();
+
+            while (currentPage <= endPage)
+            {
+                string pageUrl = $"https://www.designrush.com/agency/mobile-app-design-development?page={currentPage}";
+                List<string> urls = crawlService.GetAgencyUrls(pageUrl);
+
+                if (urls.Count == 0)
+                {
+                    StatusMessage = "Không còn URL nào để tìm!";
+                    break; // Dừng lại nếu không còn URL nào
+                }
+
+                // Crawling dữ liệu cho các agency
+                var agencies = await CrawlService.CrawlMultiplePagesAsync(urls);
+
+                // Lưu dữ liệu cho mỗi agency sau khi crawling trang hiện tại
+                foreach (var agency in agencies)
+                {
+                    try
+                    {
+                        DatabaseService.SaveAllAgenciesData(new List<Agency> { agency });
+                        CrawlResults.Add($"Dữ liệu đã được crawl và lưu cho: {agency.Name}");
+                    }
+                    catch (Exception ex)
+                    {
+                        CrawlResults.Add($"Lỗi khi lưu dữ liệu cho: {agency.OfficialWebsite}. Lỗi: {ex.Message}");
+                    }
+                }
+
+                Console.WriteLine($"Đã crawl và lưu dữ liệu cho trang: {currentPage}");
+                StatusMessage = $"Crawl trang {currentPage} thành công!";
+                currentPage++; // Chuyển sang trang tiếp theo
+            }
+
+            StatusMessage = "Quá trình crawl hoàn thành thành công!";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Lỗi trong quá trình crawl: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+}
